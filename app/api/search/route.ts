@@ -51,21 +51,25 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// STEP 1: AI THINKS and expands vague queries
+// STEP 1: AI THINKS and expands vague queries (with smart fallback!)
 async function expandQueryWithAI(userQuery: string): Promise<{
   fullName: string;
   brand: string;
   category: string;
 }> {
-  console.log('🧠 AI is thinking about:', userQuery);
+  console.log('🧠 Analyzing query:', userQuery);
 
+  // SMART FALLBACK: Expand common vague queries without AI
+  const smartExpansion = smartExpandQuery(userQuery);
+  if (smartExpansion) {
+    console.log('✅ Smart expansion:', smartExpansion.fullName);
+    return smartExpansion;
+  }
+
+  // Try OpenAI if available AND has credits
   if (!process.env.OPENAI_API_KEY) {
-    // Fallback without AI
-    return {
-      fullName: userQuery,
-      brand: extractBrand(userQuery),
-      category: detectCategory(userQuery)
-    };
+    console.log('ℹ️ No OpenAI key - using basic expansion');
+    return basicExpansion(userQuery);
   }
 
   try {
@@ -111,13 +115,60 @@ Return JSON with:
     };
 
   } catch (error) {
-    console.error('⚠️ AI expansion failed:', error);
-    return {
-      fullName: userQuery,
-      brand: extractBrand(userQuery),
-      category: detectCategory(userQuery)
-    };
+    console.error('⚠️ AI expansion failed (no credits?) - using smart fallback:', error);
+    return basicExpansion(userQuery);
   }
+}
+
+// Smart pattern matching for common vague queries
+function smartExpandQuery(query: string): { fullName: string; brand: string; category: string } | null {
+  const lower = query.toLowerCase().trim();
+
+  // Sony Headphones
+  if (lower === 'xm4' || lower === 'wh-1000xm4' || lower === 'sony xm4') {
+    return { fullName: 'Sony WH-1000XM4 Wireless Headphones', brand: 'Sony', category: 'headphones' };
+  }
+  if (lower === 'xm5' || lower === 'wh-1000xm5' || lower === 'sony xm5') {
+    return { fullName: 'Sony WH-1000XM5 Wireless Headphones', brand: 'Sony', category: 'headphones' };
+  }
+
+  // Apple Products
+  if (lower === 'airpods' || lower === 'airpods pro') {
+    return { fullName: 'Apple AirPods Pro 2nd Generation', brand: 'Apple', category: 'earbuds' };
+  }
+  if (lower.match(/^iphone\s*15$/i)) {
+    return { fullName: 'Apple iPhone 15', brand: 'Apple', category: 'smartphone' };
+  }
+  if (lower.match(/^iphone\s*14$/i)) {
+    return { fullName: 'Apple iPhone 14', brand: 'Apple', category: 'smartphone' };
+  }
+  if (lower === 'macbook' || lower === 'macbook pro') {
+    return { fullName: 'Apple MacBook Pro', brand: 'Apple', category: 'laptop' };
+  }
+
+  // Samsung
+  if (lower.includes('galaxy s24')) {
+    return { fullName: 'Samsung Galaxy S24', brand: 'Samsung', category: 'smartphone' };
+  }
+  if (lower.includes('galaxy s23')) {
+    return { fullName: 'Samsung Galaxy S23', brand: 'Samsung', category: 'smartphone' };
+  }
+
+  // Other common products
+  if (lower === 'oral b' || lower === 'oral-b') {
+    return { fullName: 'Oral-B Electric Toothbrush', brand: 'Oral-B', category: 'toothbrush' };
+  }
+
+  return null; // No match, try AI or basic expansion
+}
+
+// Basic expansion when no AI and no pattern match
+function basicExpansion(query: string): { fullName: string; brand: string; category: string } {
+  return {
+    fullName: query,
+    brand: extractBrand(query),
+    category: detectCategory(query)
+  };
 }
 
 // STEP 2: Search the web
