@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Product } from '@/types';
+import { Product, StorePrice } from '@/types';
 
 // This is a mock implementation. In production, you would:
 // 1. Use web scraping libraries (puppeteer, cheerio)
@@ -16,16 +16,31 @@ export async function POST(request: NextRequest) {
 
     const brand = extractBrand(query);
     const productName = isUrl ? extractProductNameFromUrl(query) : generateProductName(query, brand);
+    const category = detectCategory(query);
 
-    // Mock product data
+    // Generate prices from multiple stores
+    const storePrices = generateMultiStorePrices(category);
+
+    // Find cheapest price
+    const cheapest = storePrices.reduce((min, store) =>
+      store.price < min.price ? store : min
+    );
+
+    // Generate product image based on category
+    const productImage = generateProductImage(category, productName);
+
+    // Mock product data with multi-store pricing
     const mockProduct: Product = {
       id: Math.random().toString(36).substr(2, 9),
       name: productName,
       brand: brand,
-      image: generatePlaceholderImage(productName),
-      price: `$${generateRealisticPrice(query).toFixed(2)}`,
-      url: isUrl ? query : `https://amazon.com/product/${Math.random().toString(36)}`,
-      source: isUrl ? detectSource(query) : 'Amazon',
+      image: productImage,
+      price: `$${cheapest.price.toFixed(2)}`,
+      cheapestPrice: cheapest.price,
+      cheapestStore: cheapest.store,
+      storePrices: storePrices,
+      url: cheapest.url,
+      source: cheapest.store,
     };
 
     return NextResponse.json({ product: mockProduct });
@@ -73,30 +88,74 @@ function generateProductName(query: string, brand: string): string {
   }
 }
 
-function generateRealisticPrice(query: string): number {
+function detectCategory(query: string): string {
   const lowerQuery = query.toLowerCase();
 
-  // Price ranges based on product categories
-  if (lowerQuery.includes('toothbrush') || lowerQuery.includes('tooth brush')) {
-    return Math.random() * 80 + 20; // $20-$100
-  } else if (lowerQuery.includes('laptop')) {
-    return Math.random() * 1500 + 500; // $500-$2000
-  } else if (lowerQuery.includes('phone') || lowerQuery.includes('smartphone')) {
-    return Math.random() * 700 + 300; // $300-$1000
-  } else if (lowerQuery.includes('headphone') || lowerQuery.includes('earbuds')) {
-    return Math.random() * 250 + 50; // $50-$300
-  } else if (lowerQuery.includes('watch') || lowerQuery.includes('smartwatch')) {
-    return Math.random() * 350 + 150; // $150-$500
-  } else if (lowerQuery.includes('tablet')) {
-    return Math.random() * 600 + 200; // $200-$800
-  } else if (lowerQuery.includes('camera')) {
-    return Math.random() * 1000 + 300; // $300-$1300
-  } else if (lowerQuery.includes('tv') || lowerQuery.includes('television')) {
-    return Math.random() * 1200 + 300; // $300-$1500
-  } else {
-    // Default range for unknown products
-    return Math.random() * 150 + 25; // $25-$175
+  if (lowerQuery.includes('toothbrush') || lowerQuery.includes('tooth brush')) return 'toothbrush';
+  if (lowerQuery.includes('laptop')) return 'laptop';
+  if (lowerQuery.includes('phone') || lowerQuery.includes('smartphone')) return 'phone';
+  if (lowerQuery.includes('headphone') || lowerQuery.includes('earbuds')) return 'headphones';
+  if (lowerQuery.includes('watch') || lowerQuery.includes('smartwatch')) return 'watch';
+  if (lowerQuery.includes('tablet')) return 'tablet';
+  if (lowerQuery.includes('camera')) return 'camera';
+  if (lowerQuery.includes('tv') || lowerQuery.includes('television')) return 'tv';
+
+  return 'electronics';
+}
+
+function generateMultiStorePrices(category: string): StorePrice[] {
+  const stores = ['Amazon', 'Best Buy', 'Target', 'Walmart', 'Official Store'];
+  const basePrice = getBasePriceForCategory(category);
+
+  // Generate prices with realistic variations
+  const storePrices: StorePrice[] = stores.map(store => {
+    // Each store has a random variance from base price (-15% to +25%)
+    const variance = (Math.random() * 0.4) - 0.15; // -15% to +25%
+    const price = basePrice * (1 + variance);
+
+    // Some stores might be out of stock (10% chance)
+    const inStock = Math.random() > 0.1;
+
+    return {
+      store,
+      price: parseFloat(price.toFixed(2)),
+      url: `https://${store.toLowerCase().replace(/\s+/g, '')}.com/product/${Math.random().toString(36)}`,
+      inStock
+    };
+  });
+
+  // Ensure at least 2 stores have stock
+  const inStockCount = storePrices.filter(p => p.inStock).length;
+  if (inStockCount < 2) {
+    storePrices[0].inStock = true;
+    storePrices[1].inStock = true;
   }
+
+  // Sort by price (cheapest first)
+  return storePrices.sort((a, b) => {
+    // In-stock items come first
+    if (a.inStock && !b.inStock) return -1;
+    if (!a.inStock && b.inStock) return 1;
+    // Then sort by price
+    return a.price - b.price;
+  });
+}
+
+function getBasePriceForCategory(category: string): number {
+  const priceRanges: { [key: string]: { min: number; max: number } } = {
+    toothbrush: { min: 35, max: 85 },
+    laptop: { min: 699, max: 1899 },
+    phone: { min: 399, max: 999 },
+    headphones: { min: 79, max: 299 },
+    watch: { min: 199, max: 499 },
+    tablet: { min: 299, max: 799 },
+    camera: { min: 399, max: 1299 },
+    tv: { min: 399, max: 1499 },
+    electronics: { min: 49, max: 199 },
+  };
+
+  const range = priceRanges[category] || priceRanges.electronics;
+  return Math.random() * (range.max - range.min) + range.min;
 }
 
 function extractBrand(query: string): string {
@@ -120,9 +179,23 @@ function detectSource(url: string): string {
   return 'Official Store';
 }
 
-function generatePlaceholderImage(productName: string): string {
-  // Using placeholder.com for better image display
-  const seed = encodeURIComponent(productName);
-  // Use a more reliable placeholder service with product-like imagery
-  return `https://placehold.co/400x400/1a1a24/3b82f6?text=${seed.slice(0, 20)}`;
+function generateProductImage(category: string, productName: string): string {
+  // Use a color-coded placeholder based on category
+  const categoryColors: { [key: string]: { bg: string; text: string } } = {
+    toothbrush: { bg: '3b82f6', text: 'ffffff' },
+    laptop: { bg: '0ea5e9', text: 'ffffff' },
+    phone: { bg: '06b6d4', text: 'ffffff' },
+    headphones: { bg: '8b5cf6', text: 'ffffff' },
+    watch: { bg: 'ec4899', text: 'ffffff' },
+    tablet: { bg: '10b981', text: 'ffffff' },
+    camera: { bg: 'f59e0b', text: 'ffffff' },
+    tv: { bg: 'ef4444', text: 'ffffff' },
+    electronics: { bg: '6366f1', text: 'ffffff' },
+  };
+
+  const colors = categoryColors[category] || categoryColors.electronics;
+
+  // Use via.placeholder.com which is very reliable
+  const text = category.charAt(0).toUpperCase() + category.slice(1);
+  return `https://via.placeholder.com/400x400/${colors.bg}/${colors.text}?text=${encodeURIComponent(text)}`;
 }

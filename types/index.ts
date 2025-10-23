@@ -1,9 +1,19 @@
+export interface StorePrice {
+  store: string;
+  price: number;
+  url: string;
+  inStock: boolean;
+}
+
 export interface Product {
   id: string;
   name: string;
   brand: string;
   image: string;
-  price?: string;
+  price?: string; // Cheapest price as string
+  cheapestPrice?: number; // Cheapest price as number
+  cheapestStore?: string; // Which store has cheapest price
+  storePrices?: StorePrice[]; // All store prices
   url: string;
   source: string; // 'amazon', 'bestbuy', 'official', etc.
 }

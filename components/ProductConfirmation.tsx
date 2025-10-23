@@ -49,13 +49,36 @@ export default function ProductConfirmation({
             {product.name}
           </h3>
           {product.price && (
-            <div className="flex items-center gap-2">
-              <p className="text-3xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent animate-scale-in" style={{ animationDelay: '0.4s' }}>
-                {product.price}
-              </p>
-              <span className="text-xs text-gray-500 animate-fade-in" style={{ animationDelay: '0.5s' }}>
-                + tax
-              </span>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <p className="text-3xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent animate-scale-in" style={{ animationDelay: '0.4s' }}>
+                  {product.price}
+                </p>
+                <span className="text-xs text-gray-500 animate-fade-in" style={{ animationDelay: '0.5s' }}>
+                  + tax
+                </span>
+              </div>
+              {product.cheapestStore && (
+                <div className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary/20 text-primary text-xs font-semibold animate-fade-in" style={{ animationDelay: '0.6s' }}>
+                  <span>💰</span>
+                  <span>Cheapest at {product.cheapestStore}</span>
+                </div>
+              )}
+              {product.storePrices && product.storePrices.length > 1 && (
+                <div className="mt-2 space-y-1 animate-fade-in-up" style={{ animationDelay: '0.7s' }}>
+                  <p className="text-xs text-gray-400">Also available at:</p>
+                  {product.storePrices.slice(1, 4).map((store, idx) => (
+                    <div key={idx} className="flex items-center justify-between text-xs">
+                      <span className={store.inStock ? 'text-gray-300' : 'text-gray-600'}>
+                        {store.store} {!store.inStock && '(Out of Stock)'}
+                      </span>
+                      <span className={store.inStock ? 'text-secondary font-semibold' : 'text-gray-600'}>
+                        ${store.price.toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
