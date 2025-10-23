@@ -1,28 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Product, ProductDetails, ComparisonResult, ComparisonItem } from '@/types';
-
-// This is a mock implementation. In production, you would:
-// 1. Scrape product pages for detailed specs
-// 2. Use AI (GPT-4, Claude) to extract and compare specifications
-// 3. Aggregate reviews from multiple platforms
-// 4. Perform intelligent analysis
+import OpenAI from 'openai';
 
 export async function POST(request: NextRequest) {
   try {
     const { leftProduct, rightProduct } = await request.json();
 
-    // Simulate analysis delay
-    await new Promise(resolve => setTimeout(resolve, 2500));
+    console.log('🔄 Starting AI-powered comparison for:', leftProduct.name, 'vs', rightProduct.name);
 
-    // Generate mock detailed products
-    const leftDetails = await generateProductDetails(leftProduct);
-    const rightDetails = await generateProductDetails(rightProduct);
+    // Use AI to generate detailed products with RELEVANT specs
+    const leftDetails = await generateProductDetailsWithAI(leftProduct);
+    const rightDetails = await generateProductDetailsWithAI(rightProduct);
 
     // Generate comparison
     const comparison = generateComparison(leftDetails, rightDetails);
 
-    // Generate conclusion
-    const conclusion = generateConclusion(comparison, leftDetails, rightDetails);
+    // Use AI to generate intelligent conclusion
+    const conclusion = await generateAIConclusion(comparison, leftDetails, rightDetails);
 
     const result: ComparisonResult = {
       leftProduct: leftDetails,
@@ -32,9 +26,10 @@ export async function POST(request: NextRequest) {
       winner: determineWinner(comparison),
     };
 
+    console.log('✅ Comparison complete!');
     return NextResponse.json(result);
   } catch (error) {
-    console.error('Comparison error:', error);
+    console.error('❌ Comparison error:', error);
     return NextResponse.json(
       { error: 'Failed to compare products' },
       { status: 500 }
@@ -42,47 +37,59 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function generateProductDetails(product: Product): Promise<ProductDetails> {
-  // Mock specs generation
-  const specs = [
-    {
-      name: 'Battery Life',
-      value: `${Math.floor(Math.random() * 14 + 7)} days`,
-      importance: 'high' as const,
-    },
-    {
-      name: 'Brush Modes',
-      value: `${Math.floor(Math.random() * 5 + 1)} modes`,
-      importance: 'high' as const,
-    },
-    {
-      name: 'Pressure Sensor',
-      value: Math.random() > 0.5 ? 'Yes' : 'No',
-      importance: 'medium' as const,
-    },
-    {
-      name: 'Smart Timer',
-      value: Math.random() > 0.3 ? '2-minute timer' : 'No timer',
-      importance: 'medium' as const,
-    },
-    {
-      name: 'Waterproof',
-      value: Math.random() > 0.2 ? 'IPX7' : 'IPX5',
-      importance: 'high' as const,
-    },
-    {
-      name: 'Warranty',
-      value: `${Math.floor(Math.random() * 2 + 1)} years`,
-      importance: 'low' as const,
-    },
-    {
-      name: 'Charging Time',
-      value: `${Math.floor(Math.random() * 12 + 12)} hours`,
-      importance: 'medium' as const,
-    },
-  ];
+// AI-POWERED: Generate specs based on what the product ACTUALLY is
+async function generateProductDetailsWithAI(product: Product): Promise<ProductDetails> {
+  console.log('🤖 AI analyzing product:', product.name);
 
-  // Mock reviews
+  let specs = [];
+
+  // Try to use AI if available
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+      const response = await openai.chat.completions.create({
+        model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: `You are a product specification expert. Given a product name, generate 10-15 RELEVANT specifications for that specific type of product.
+
+For headphones: battery life, noise cancellation, driver size, frequency response, bluetooth version, weight, etc.
+For phones: display size, processor, RAM, storage, camera specs, battery capacity, 5G support, etc.
+For laptops: processor, RAM, storage, display resolution, battery life, weight, graphics card, etc.
+For toothbrushes: brush modes, battery life, pressure sensor, timer, waterproof rating, etc.
+
+Return JSON with specs array. Each spec should have:
+{
+  "name": "Spec name",
+  "value": "Realistic value based on product name",
+  "importance": "high" | "medium" | "low"
+}`
+          },
+          {
+            role: 'user',
+            content: `Generate 10-15 relevant specifications for: "${product.name}"\nBrand: ${product.brand}\nPrice: ${product.price}`
+          }
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.4,
+      });
+
+      const result = JSON.parse(response.choices[0].message.content || '{}');
+      specs = result.specs || [];
+      console.log(`✅ AI generated ${specs.length} specs for ${product.name}`);
+
+    } catch (error) {
+      console.error('⚠️ AI spec generation failed:', error);
+      specs = generateFallbackSpecs(product);
+    }
+  } else {
+    console.log('ℹ️ No OpenAI key - using fallback specs');
+    specs = generateFallbackSpecs(product);
+  }
+
+  // Mock reviews (same as before)
   const reviews = [
     {
       source: 'Amazon',
@@ -121,6 +128,68 @@ async function generateProductDetails(product: Product): Promise<ProductDetails>
       },
     },
   };
+}
+
+// Fallback specs when AI unavailable
+function generateFallbackSpecs(product: Product) {
+  const lower = product.name.toLowerCase();
+
+  // Headphones
+  if (lower.includes('headphone') || lower.includes('xm4') || lower.includes('xm5') || lower.includes('airpods')) {
+    return [
+      { name: 'Battery Life', value: '30 hours', importance: 'high' as const },
+      { name: 'Noise Cancellation', value: 'Active ANC', importance: 'high' as const },
+      { name: 'Driver Size', value: '40mm', importance: 'medium' as const },
+      { name: 'Bluetooth', value: '5.2', importance: 'medium' as const },
+      { name: 'Weight', value: '254g', importance: 'low' as const },
+      { name: 'Frequency Response', value: '4Hz-40kHz', importance: 'medium' as const },
+      { name: 'Codecs', value: 'LDAC, AAC, SBC', importance: 'medium' as const },
+      { name: 'Multipoint', value: 'Yes', importance: 'medium' as const },
+      { name: 'Foldable', value: 'Yes', importance: 'low' as const },
+      { name: 'Warranty', value: '1 year', importance: 'low' as const },
+    ];
+  }
+
+  // Phones
+  if (lower.includes('iphone') || lower.includes('galaxy') || lower.includes('phone')) {
+    return [
+      { name: 'Display', value: '6.1" OLED', importance: 'high' as const },
+      { name: 'Processor', value: 'A16 Bionic', importance: 'high' as const },
+      { name: 'RAM', value: '6GB', importance: 'high' as const },
+      { name: 'Storage', value: '128GB', importance: 'high' as const },
+      { name: 'Main Camera', value: '48MP', importance: 'high' as const },
+      { name: 'Battery', value: '3,877 mAh', importance: 'high' as const },
+      { name: '5G', value: 'Yes', importance: 'medium' as const },
+      { name: 'Refresh Rate', value: '120Hz', importance: 'medium' as const },
+      { name: 'Water Resistance', value: 'IP68', importance: 'medium' as const },
+      { name: 'Wireless Charging', value: 'Yes', importance: 'low' as const },
+    ];
+  }
+
+  // Laptops
+  if (lower.includes('macbook') || lower.includes('laptop')) {
+    return [
+      { name: 'Processor', value: 'M2 Pro', importance: 'high' as const },
+      { name: 'RAM', value: '16GB', importance: 'high' as const },
+      { name: 'Storage', value: '512GB SSD', importance: 'high' as const },
+      { name: 'Display', value: '14.2" Retina', importance: 'high' as const },
+      { name: 'Resolution', value: '3024x1964', importance: 'medium' as const },
+      { name: 'Battery Life', value: '18 hours', importance: 'high' as const },
+      { name: 'Weight', value: '3.5 lbs', importance: 'medium' as const },
+      { name: 'Ports', value: '3x Thunderbolt 4', importance: 'medium' as const },
+      { name: 'Graphics', value: 'Integrated', importance: 'medium' as const },
+      { name: 'Webcam', value: '1080p', importance: 'low' as const },
+    ];
+  }
+
+  // Default generic specs
+  return [
+    { name: 'Build Quality', value: 'Premium', importance: 'high' as const },
+    { name: 'Warranty', value: '1 year', importance: 'medium' as const },
+    { name: 'Color Options', value: '3 colors', importance: 'low' as const },
+    { name: 'Weight', value: 'Lightweight', importance: 'medium' as const },
+    { name: 'Durability', value: 'High', importance: 'high' as const },
+  ];
 }
 
 function generateComparison(
@@ -221,7 +290,72 @@ function compareSpecValues(
   }
 }
 
-function generateConclusion(
+// AI-POWERED: Intelligent conclusion based on comparison
+async function generateAIConclusion(
+  comparison: ComparisonItem[],
+  left: ProductDetails,
+  right: ProductDetails
+): Promise<string> {
+  console.log('🤖 AI generating conclusion...');
+
+  if (!process.env.OPENAI_API_KEY) {
+    console.log('ℹ️ No OpenAI key - using fallback conclusion');
+    return generateFallbackConclusion(comparison, left, right);
+  }
+
+  try {
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+    // Prepare comparison summary for AI
+    const comparisonSummary = comparison.map(c =>
+      `${c.metric}: ${left.name} has ${c.leftValue}, ${right.name} has ${c.rightValue}. Winner: ${c.winner}`
+    ).join('\n');
+
+    const response = await openai.chat.completions.create({
+      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: `You are a product comparison expert. Based on the comparison data, write a concise 2-3 sentence conclusion that:
+1. Identifies which product is better overall (or if it's a tie)
+2. Highlights the key deciding factors
+3. Provides a clear recommendation
+
+Be direct, factual, and helpful. Don't use marketing language.`
+        },
+        {
+          role: 'user',
+          content: `Compare these products:
+
+LEFT: ${left.name} by ${left.brand}
+Price: ${left.price}
+Rating: ${left.rating.average}/5 (${left.rating.total} reviews)
+
+RIGHT: ${right.name} by ${right.brand}
+Price: ${right.price}
+Rating: ${right.rating.average}/5 (${right.rating.total} reviews)
+
+COMPARISON:
+${comparisonSummary}
+
+Write a conclusion:`
+        }
+      ],
+      temperature: 0.7,
+      max_tokens: 200,
+    });
+
+    const conclusion = response.choices[0].message.content || generateFallbackConclusion(comparison, left, right);
+    console.log('✅ AI conclusion generated');
+    return conclusion;
+
+  } catch (error) {
+    console.error('⚠️ AI conclusion failed:', error);
+    return generateFallbackConclusion(comparison, left, right);
+  }
+}
+
+function generateFallbackConclusion(
   comparison: ComparisonItem[],
   left: ProductDetails,
   right: ProductDetails
@@ -237,9 +371,9 @@ function generateConclusion(
   const ratingDiff = Math.abs(left.rating.average - right.rating.average);
 
   if (leftWins > rightWins + 2) {
-    return `${left.brand} ${left.name.split('-')[0]} takes the lead with superior specifications and ${left.rating.average}/5 rating. It excels in ${leftWins} out of ${comparison.length} categories, making it the recommended choice for most users.`;
+    return `${left.brand} ${left.name.split(' ')[0]} takes the lead with superior specifications and ${left.rating.average}/5 rating. It excels in ${leftWins} out of ${comparison.length} categories, making it the recommended choice for most users.`;
   } else if (rightWins > leftWins + 2) {
-    return `${right.brand} ${right.name.split('-')[0]} stands out with ${rightWins} category wins and a ${right.rating.average}/5 rating. Its performance advantages make it worth considering despite any price difference.`;
+    return `${right.brand} ${right.name.split(' ')[0]} stands out with ${rightWins} category wins and a ${right.rating.average}/5 rating. Its performance advantages make it worth considering despite any price difference.`;
   } else if (ratingDiff > 0.3) {
     const winner = left.rating.average > right.rating.average ? left : right;
     return `Both products are closely matched in features, but ${winner.brand} edges ahead with a ${winner.rating.average}/5 rating from ${winner.rating.total.toLocaleString()} reviews. Customer satisfaction gives it the advantage.`;
