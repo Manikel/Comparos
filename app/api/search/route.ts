@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Product, StorePrice } from '@/types';
 import OpenAI from 'openai';
+import axios from 'axios';
+import * as cheerio from 'cheerio';
 
 export async function POST(request: NextRequest) {
   try {
@@ -313,38 +315,78 @@ async function getRelevantStores(productName: string): Promise<Array<{ name: str
   ];
 }
 
-// Get expected price range for smarter filtering
-function getExpectedPriceRange(productName: string): { min: number; max: number } {
-  const lower = productName.toLowerCase();
+// SCRAPE ACTUAL WEB PAGE TO GET PRICE
+async function scrapePrice(url: string, storeName: string): Promise<number | null> {
+  try {
+    const response = await axios.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      },
+      timeout: 5000, // 5 second timeout
+    });
 
-  // Premium headphones
-  if (lower.includes('airpods max')) return { min: 400, max: 600 };
-  if (lower.includes('xm5') || lower.includes('1000xm5')) return { min: 300, max: 450 };
-  if (lower.includes('xm4') || lower.includes('1000xm4')) return { min: 150, max: 350 };
-  if (lower.includes('airpods pro')) return { min: 180, max: 280 };
-  if (lower.includes('airpods')) return { min: 100, max: 200 };
+    const $ = cheerio.load(response.data);
+    let price: number | null = null;
 
-  // Phones
-  if (lower.includes('iphone 15 pro max')) return { min: 1000, max: 1400 };
-  if (lower.includes('iphone 15 pro')) return { min: 900, max: 1200 };
-  if (lower.includes('iphone 15')) return { min: 700, max: 900 };
-  if (lower.includes('iphone 14')) return { min: 600, max: 850 };
-  if (lower.includes('galaxy s24')) return { min: 700, max: 1000 };
+    // Store-specific selectors
+    if (storeName === 'Amazon') {
+      // Amazon price selectors
+      const priceWhole = $('.a-price-whole').first().text().replace(/[^0-9]/g, '');
+      const priceFraction = $('.a-price-fraction').first().text().replace(/[^0-9]/g, '');
+      if (priceWhole) {
+        price = parseFloat(`${priceWhole}.${priceFraction || '00'}`);
+      }
+    } else if (storeName === 'Best Buy') {
+      // Best Buy price selectors
+      const priceText = $('[class*="priceView-hero-price"]').first().text() ||
+                       $('[class*="pricing-price"]').first().text() ||
+                       $('span[aria-label*="$"]').first().attr('aria-label');
 
-  // Laptops
-  if (lower.includes('macbook pro')) return { min: 1500, max: 3500 };
-  if (lower.includes('macbook air')) return { min: 900, max: 1500 };
+      if (priceText) {
+        const match = priceText.match(/\$?\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/);
+        if (match) price = parseFloat(match[1].replace(/,/g, ''));
+      }
+    } else if (storeName === 'Walmart') {
+      // Walmart price selectors
+      const priceText = $('[itemprop="price"]').first().attr('content') ||
+                       $('[data-testid="product-price"]').first().text() ||
+                       $('.price-characteristic').first().text();
 
-  // General categories
-  if (lower.includes('headphone')) return { min: 50, max: 600 };
-  if (lower.includes('earbud')) return { min: 30, max: 300 };
-  if (lower.includes('toothbrush') && lower.includes('electric')) return { min: 20, max: 150 };
-  if (lower.includes('toothpaste')) return { min: 2, max: 15 };
-  if (lower.includes('laptop')) return { min: 300, max: 3000 };
-  if (lower.includes('phone') || lower.includes('smartphone')) return { min: 200, max: 1500 };
+      if (priceText) {
+        const match = priceText.match(/(\d+(?:\.\d{2})?)/);
+        if (match) price = parseFloat(match[1]);
+      }
+    } else if (storeName === 'B&H Photo') {
+      // B&H Photo price selectors
+      const priceText = $('[data-selenium="pricingPrice"]').first().text() ||
+                       $('.price_1').first().text();
 
-  // Default wide range
-  return { min: 10, max: 2000 };
+      if (priceText) {
+        const match = priceText.match(/\$?\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/);
+        if (match) price = parseFloat(match[1].replace(/,/g, ''));
+      }
+    }
+
+    // Generic fallback - search entire page for price patterns
+    if (!price) {
+      const bodyText = $('body').text();
+      const priceMatches = bodyText.match(/\$\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/g);
+
+      if (priceMatches && priceMatches.length > 0) {
+        // Get most common price (likely the actual price)
+        const prices = priceMatches.map(m => parseFloat(m.replace(/[$,]/g, '')))
+          .filter(p => p >= 1 && p <= 10000);
+
+        if (prices.length > 0) {
+          price = prices[0]; // Use first valid price found
+        }
+      }
+    }
+
+    return price;
+  } catch (error) {
+    return null;
+  }
 }
 
 // STEP 4: Get REAL prices from stores - NO FAKE FALLBACKS
@@ -404,53 +446,34 @@ async function getRealStorePrices(productName: string): Promise<StorePrice[]> {
           continue;
         }
 
-        // Extract price from the FIRST result that has one
+        // SCRAPE THE ACTUAL WEB PAGE TO GET THE PRICE
         let foundPrice: number | null = null;
         let foundUrl: string | null = null;
 
-        for (const result of results) {
-          // Combine all text fields
-          const text = [
-            result.title || '',
-            result.description || '',
-            result.extra_snippets?.join(' ') || ''
-          ].join(' ');
+        // Try first 3 results
+        for (const result of results.slice(0, 3)) {
+          if (!result.url) continue;
 
-          console.log(`🔎 ${store.name} result:`, text.substring(0, 200));
+          console.log(`🌐 ${store.name}: Trying to scrape ${result.url}`);
 
-          // Multiple price patterns
-          const patterns = [
-            /\$\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/g,  // $99.99 or $1,299.99
-            /(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s*dollars?/gi,  // 99.99 dollars
-            /price[:\s]+\$?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/gi,  // Price: $99.99
-          ];
+          try {
+            // Scrape the actual page
+            const price = await scrapePrice(result.url, store.name);
 
-          for (const pattern of patterns) {
-            const matches = [...text.matchAll(pattern)];
-
-            for (const match of matches) {
-              const priceStr = match[1].replace(/,/g, '');
-              const price = parseFloat(priceStr);
-
-              // SMARTER sanity check based on product type
-              const expectedRange = getExpectedPriceRange(productName);
-
-              if (price >= expectedRange.min && price <= expectedRange.max) {
-                foundPrice = price;
-                foundUrl = result.url;
-                console.log(`✅ ${store.name}: Found price $${price} (within expected range $${expectedRange.min}-$${expectedRange.max})`);
-                break;
-              } else {
-                console.log(`⚠️ ${store.name}: Rejected price $${price} (outside expected range $${expectedRange.min}-$${expectedRange.max})`);
-              }
+            if (price) {
+              foundPrice = price;
+              foundUrl = result.url;
+              console.log(`✅ ${store.name}: Scraped price $${price} from ${result.url}`);
+              break;
             }
-            if (foundPrice) break;
+          } catch (error) {
+            console.log(`⚠️ ${store.name}: Failed to scrape ${result.url}`);
+            continue;
           }
-          if (foundPrice) break;
         }
 
         if (!foundPrice) {
-          console.log(`⚠️ ${store.name}: No valid price found in results`);
+          console.log(`❌ ${store.name}: Could not scrape any prices`);
           continue;
         }
 
