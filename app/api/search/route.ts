@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Product, StorePrice } from '@/types';
+import OpenAI from 'openai';
 
 export async function POST(request: NextRequest) {
   try {
@@ -97,37 +98,66 @@ async function extractProductInfo(searchResults: any, query: string): Promise<{
   url: string;
 }> {
   // Use AI to extract product info from search results
-  // In production: Call OpenAI GPT-4 or Anthropic Claude to parse search results
+  const brand = extractBrand(query);
+  const fallbackName = generateIntelligentProductName(query, brand);
 
-  const prompt = `
-Extract product information from this query: "${query}"
-Search results: ${JSON.stringify(searchResults.results?.slice(0, 3))}
+  // If we have OpenAI API key, use AI to parse
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      const openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+      });
 
-Return JSON with:
-- name: Full product name
-- brand: Brand name
-- url: Best product page URL
-`;
+      const prompt = `Extract product information from this search query: "${query}"
 
-  try {
-    // In production, call OpenAI or Anthropic API here
-    // const aiResponse = await callAI(prompt);
+Search results summary:
+${searchResults.results?.slice(0, 3).map((r: any) => `- ${r.title}: ${r.description || ''}`).join('\n')}
 
-    // For now, intelligent parsing based on query
-    const brand = extractBrand(query);
-    const name = generateIntelligentProductName(query, brand);
-    const url = searchResults.results?.[0]?.url || '';
+Return a JSON object with:
+{
+  "name": "Full product name",
+  "brand": "Brand name",
+  "url": "Best product page URL from results"
+}`;
 
-    return { name, brand, url };
-  } catch (error) {
-    console.error('AI extraction error:', error);
-    const brand = extractBrand(query);
-    return {
-      name: generateIntelligentProductName(query, brand),
-      brand,
-      url: ''
-    };
+      console.log('🤖 Calling OpenAI GPT-4o-mini...');
+
+      const response = await openai.chat.completions.create({
+        model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a product information extraction assistant. Return only valid JSON.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.3,
+      });
+
+      const aiResult = JSON.parse(response.choices[0].message.content || '{}');
+      console.log('✅ AI extracted:', aiResult.name);
+
+      return {
+        name: aiResult.name || fallbackName,
+        brand: aiResult.brand || brand,
+        url: aiResult.url || searchResults.results?.[0]?.url || ''
+      };
+
+    } catch (error) {
+      console.error('⚠️  AI extraction failed, using fallback:', error);
+    }
   }
+
+  // Fallback: intelligent parsing without AI
+  return {
+    name: fallbackName,
+    brand: brand,
+    url: searchResults.results?.[0]?.url || ''
+  };
 }
 
 async function searchStorePrices(productName: string, brand: string): Promise<StorePrice[]> {
