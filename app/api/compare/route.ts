@@ -53,27 +53,35 @@ async function generateProductDetailsWithAI(product: Product): Promise<ProductDe
         messages: [
           {
             role: 'system',
-            content: `You are a product specification expert. Given a product name, generate 10-15 RELEVANT specifications for that specific type of product.
+            content: `You are a product specification expert with deep knowledge of actual products. Given a product name, generate FACTUAL, SPECIFIC specifications for that EXACT product based on real specs.
 
-For headphones: battery life, noise cancellation, driver size, frequency response, bluetooth version, weight, etc.
-For phones: display size, processor, RAM, storage, camera specs, battery capacity, 5G support, etc.
-For laptops: processor, RAM, storage, display resolution, battery life, weight, graphics card, etc.
-For toothbrushes: brush modes, battery life, pressure sensor, timer, waterproof rating, etc.
+IMPORTANT: Generate DIFFERENT values for different products! Don't use the same values for all products.
+
+For headphones: battery life, noise cancellation type, driver size, frequency response, bluetooth version, weight, codecs, etc.
+For phones: display size, processor model, RAM amount, storage options, camera megapixels, battery mAh, 5G support, etc.
+For laptops: processor model, RAM GB, storage GB, display size and resolution, battery life hours, weight lbs, graphics card, etc.
+
+CRITICAL: Use your knowledge to provide ACTUAL specs for known products:
+- Sony WH-1000XM4: 30hr battery, 40mm drivers, LDAC codec, 254g weight
+- Sony WH-1000XM5: 30hr battery, 30mm drivers, LDAC codec, 250g weight
+- Apple AirPods Max: 20hr battery, 40mm drivers, AAC codec, 385g weight
+- iPhone 15: 6.1" display, A16 Bionic, 48MP camera, 3,877mAh battery
+- iPhone 15 Pro: 6.1" display, A17 Pro, 48MP camera, 3,274mAh battery
 
 Return JSON with specs array. Each spec should have:
 {
   "name": "Spec name",
-  "value": "Realistic value based on product name",
+  "value": "ACTUAL factual value for THIS specific product",
   "importance": "high" | "medium" | "low"
 }`
           },
           {
             role: 'user',
-            content: `Generate 10-15 relevant specifications for: "${product.name}"\nBrand: ${product.brand}\nPrice: ${product.price}`
+            content: `Generate FACTUAL, SPECIFIC specifications for this EXACT product: "${product.name}"\nBrand: ${product.brand}\nPrice: ${product.price}\n\nUse your knowledge of this specific product to provide accurate specs. Make sure specs are DIFFERENT from other products.`
           }
         ],
         response_format: { type: 'json_object' },
-        temperature: 0.4,
+        temperature: 0.2, // Lower temperature for more factual responses
       });
 
       const result = JSON.parse(response.choices[0].message.content || '{}');
@@ -130,21 +138,85 @@ Return JSON with specs array. Each spec should have:
   };
 }
 
-// Fallback specs when AI unavailable
+// Fallback specs when AI unavailable - PRODUCT SPECIFIC!
 function generateFallbackSpecs(product: Product) {
   const lower = product.name.toLowerCase();
 
-  // Headphones
-  if (lower.includes('headphone') || lower.includes('xm4') || lower.includes('xm5') || lower.includes('airpods')) {
+  // SPECIFIC Sony WH-1000XM4
+  if (lower.includes('xm4') || lower.includes('1000xm4')) {
     return [
       { name: 'Battery Life', value: '30 hours', importance: 'high' as const },
-      { name: 'Noise Cancellation', value: 'Active ANC', importance: 'high' as const },
+      { name: 'Noise Cancellation', value: 'Industry-leading ANC', importance: 'high' as const },
       { name: 'Driver Size', value: '40mm', importance: 'medium' as const },
-      { name: 'Bluetooth', value: '5.2', importance: 'medium' as const },
+      { name: 'Bluetooth', value: '5.0', importance: 'medium' as const },
       { name: 'Weight', value: '254g', importance: 'low' as const },
       { name: 'Frequency Response', value: '4Hz-40kHz', importance: 'medium' as const },
-      { name: 'Codecs', value: 'LDAC, AAC, SBC', importance: 'medium' as const },
+      { name: 'Codecs', value: 'LDAC, AAC, SBC', importance: 'high' as const },
       { name: 'Multipoint', value: 'Yes', importance: 'medium' as const },
+      { name: 'Touch Controls', value: 'Yes', importance: 'medium' as const },
+      { name: 'Charging Port', value: 'USB-C', importance: 'low' as const },
+    ];
+  }
+
+  // SPECIFIC Sony WH-1000XM5
+  if (lower.includes('xm5') || lower.includes('1000xm5')) {
+    return [
+      { name: 'Battery Life', value: '30 hours', importance: 'high' as const },
+      { name: 'Noise Cancellation', value: 'Advanced ANC with 8 mics', importance: 'high' as const },
+      { name: 'Driver Size', value: '30mm', importance: 'medium' as const },
+      { name: 'Bluetooth', value: '5.2', importance: 'medium' as const },
+      { name: 'Weight', value: '250g', importance: 'low' as const },
+      { name: 'Frequency Response', value: '4Hz-40kHz', importance: 'medium' as const },
+      { name: 'Codecs', value: 'LDAC, AAC, SBC', importance: 'high' as const },
+      { name: 'Multipoint', value: 'Yes', importance: 'medium' as const },
+      { name: 'Design', value: 'New sleeker design', importance: 'low' as const },
+      { name: 'Charging Port', value: 'USB-C', importance: 'low' as const },
+    ];
+  }
+
+  // SPECIFIC AirPods Max
+  if (lower.includes('airpods max')) {
+    return [
+      { name: 'Battery Life', value: '20 hours', importance: 'high' as const },
+      { name: 'Noise Cancellation', value: 'Active ANC', importance: 'high' as const },
+      { name: 'Driver Size', value: '40mm', importance: 'medium' as const },
+      { name: 'Chip', value: 'Apple H1', importance: 'high' as const },
+      { name: 'Weight', value: '385g', importance: 'low' as const },
+      { name: 'Spatial Audio', value: 'Yes with head tracking', importance: 'high' as const },
+      { name: 'Codecs', value: 'AAC', importance: 'medium' as const },
+      { name: 'Build', value: 'Aluminum & stainless steel', importance: 'medium' as const },
+      { name: 'Digital Crown', value: 'Yes', importance: 'medium' as const },
+      { name: 'Charging Port', value: 'Lightning', importance: 'low' as const },
+    ];
+  }
+
+  // SPECIFIC AirPods Pro
+  if (lower.includes('airpods pro')) {
+    return [
+      { name: 'Battery Life', value: '6 hours (30 with case)', importance: 'high' as const },
+      { name: 'Noise Cancellation', value: 'Active ANC', importance: 'high' as const },
+      { name: 'Chip', value: 'Apple H2', importance: 'high' as const },
+      { name: 'Water Resistance', value: 'IPX4', importance: 'medium' as const },
+      { name: 'Adaptive Audio', value: 'Yes', importance: 'high' as const },
+      { name: 'Spatial Audio', value: 'Yes with head tracking', importance: 'high' as const },
+      { name: 'Ear Tips', value: '4 sizes included', importance: 'medium' as const },
+      { name: 'Charging', value: 'USB-C, MagSafe, Qi', importance: 'medium' as const },
+      { name: 'Find My', value: 'Precision Finding', importance: 'low' as const },
+      { name: 'Conversation Awareness', value: 'Yes', importance: 'medium' as const },
+    ];
+  }
+
+  // Generic headphones fallback
+  if (lower.includes('headphone')) {
+    return [
+      { name: 'Battery Life', value: '25 hours', importance: 'high' as const },
+      { name: 'Noise Cancellation', value: 'Active ANC', importance: 'high' as const },
+      { name: 'Driver Size', value: '40mm', importance: 'medium' as const },
+      { name: 'Bluetooth', value: '5.0', importance: 'medium' as const },
+      { name: 'Weight', value: '250g', importance: 'low' as const },
+      { name: 'Frequency Response', value: '20Hz-20kHz', importance: 'medium' as const },
+      { name: 'Codecs', value: 'AAC, SBC', importance: 'medium' as const },
+      { name: 'Multipoint', value: 'No', importance: 'medium' as const },
       { name: 'Foldable', value: 'Yes', importance: 'low' as const },
       { name: 'Warranty', value: '1 year', importance: 'low' as const },
     ];

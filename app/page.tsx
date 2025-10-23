@@ -24,13 +24,6 @@ export default function Home() {
 
   return (
     <main className="min-h-screen w-full overflow-hidden relative">
-      {/* Animated background orbs */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
-        <div className="absolute top-20 left-10 w-72 h-72 bg-primary/10 rounded-full blur-3xl animate-float" />
-        <div className="absolute bottom-20 right-10 w-96 h-96 bg-secondary/10 rounded-full blur-3xl animate-float-slow" style={{ animationDelay: '2s' }} />
-        <div className="absolute top-1/2 left-1/4 w-64 h-64 bg-accent/10 rounded-full blur-3xl animate-float" style={{ animationDelay: '4s' }} />
-      </div>
-
       {/* Header */}
       <header className="fixed top-0 left-0 right-0 z-50 glass-effect animate-slide-down backdrop-blur-xl">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
@@ -85,12 +78,9 @@ export default function Home() {
         {!isComparing && leftProduct && rightProduct && (
           <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 animate-scale-bounce">
             <div className="relative group">
-              {/* Glow effect */}
-              <div className="absolute -inset-1 bg-gradient-to-r from-primary via-secondary to-accent rounded-full blur opacity-75 group-hover:opacity-100 animate-glow-pulse" />
-
               <button
                 onClick={handleCompare}
-                className="relative px-10 py-5 bg-gradient-to-r from-primary via-secondary to-accent rounded-full text-white font-bold text-lg hover:scale-110 transition-all duration-300 shadow-2xl shadow-primary/50 animate-shimmer hover:shadow-primary/70"
+                className="relative px-10 py-5 bg-gradient-to-r from-primary via-secondary to-accent rounded-full text-white font-bold text-lg hover:scale-105 transition-all duration-300 shadow-lg shadow-primary/30 hover:shadow-primary/40"
                 style={{
                   backgroundSize: '200% auto',
                 }}
@@ -104,6 +94,11 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {/* Credits Footer */}
+      <footer className="fixed bottom-0 left-0 right-0 z-40 py-3 text-center text-sm text-white/40 backdrop-blur-sm">
+        <p>Made by Mani Kelidari™</p>
+      </footer>
     </main>
   );
 }
