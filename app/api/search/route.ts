@@ -287,8 +287,18 @@ async function getRealStorePrices(productName: string): Promise<StorePrice[]> {
   }
 
   try {
-    // BETTER SEARCH STRATEGY: Search each store individually
-    const pricePromises = stores.map(async (store) => {
+    // SEQUENTIAL SEARCH: One store at a time to avoid rate limits
+    const validPrices: StorePrice[] = [];
+
+    for (let i = 0; i < stores.length; i++) {
+      const store = stores[i];
+
+      // Add delay between requests (1.2 seconds) to respect rate limit
+      if (i > 0) {
+        console.log(`⏳ Waiting 1.2s before next search...`);
+        await new Promise(resolve => setTimeout(resolve, 1200));
+      }
+
       try {
         // More specific query per store
         const storeQuery = `${productName} price site:${store.domain}`;
@@ -307,7 +317,7 @@ async function getRealStorePrices(productName: string): Promise<StorePrice[]> {
         if (!response.ok) {
           const errorText = await response.text();
           console.log(`❌ ${store.name} search failed:`, response.status, errorText);
-          return null;
+          continue;
         }
 
         const data = await response.json();
@@ -317,7 +327,7 @@ async function getRealStorePrices(productName: string): Promise<StorePrice[]> {
 
         if (results.length === 0) {
           console.log(`⚠️ ${store.name}: No results found`);
-          return null;
+          continue;
         }
 
         // Extract price from the FIRST result that has one
@@ -363,24 +373,21 @@ async function getRealStorePrices(productName: string): Promise<StorePrice[]> {
 
         if (!foundPrice) {
           console.log(`⚠️ ${store.name}: No valid price found in results`);
-          return null;
+          continue;
         }
 
-        return {
+        validPrices.push({
           store: store.name,
           price: foundPrice,
           url: foundUrl || results[0]?.url || `https://www.${store.domain}`,
           inStock: true,
-        };
+        });
 
       } catch (error) {
         console.error(`❌ ${store.name} error:`, error);
-        return null;
+        continue;
       }
-    });
-
-    const results = await Promise.all(pricePromises);
-    const validPrices = results.filter((r): r is StorePrice => r !== null);
+    }
 
     console.log(`✅ Found ${validPrices.length} real prices out of ${stores.length} stores`);
 
