@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     // STEP 3: Extract REAL product data from search results
     const productData = await extractRealProductData(searchResults, intelligentQuery);
 
-    // STEP 4: Get REAL prices from actual stores
+    // STEP 4: Get REAL prices from actual stores - NO FALLBACKS!
     const storePrices = await getRealStorePrices(intelligentQuery.fullName);
 
     // Find cheapest
@@ -34,12 +34,17 @@ export async function POST(request: NextRequest) {
       price: cheapest ? `$${cheapest.price.toFixed(2)}` : 'Price not available',
       cheapestPrice: cheapest?.price,
       cheapestStore: cheapest?.store,
-      storePrices: storePrices,
+      storePrices: storePrices.length > 0 ? storePrices : undefined,
       url: cheapest?.url || productData.url,
       source: cheapest?.store || 'Web',
     };
 
-    console.log('✅ Final result:', product.name, '@', product.price, 'from', product.cheapestStore);
+    if (storePrices.length > 0) {
+      console.log(`✅ REAL PRICES FOUND: ${product.name} @ ${product.price} from ${product.cheapestStore}`);
+    } else {
+      console.log(`⚠️ NO REAL PRICES FOUND for ${product.name} - showing "Price not available"`);
+    }
+
     return NextResponse.json({ product });
 
   } catch (error) {
@@ -265,9 +270,9 @@ async function extractRealProductData(searchResults: any, intelligentQuery: any)
   };
 }
 
-// STEP 4: Get REAL prices from stores
+// STEP 4: Get REAL prices from stores - NO FAKE FALLBACKS
 async function getRealStorePrices(productName: string): Promise<StorePrice[]> {
-  console.log('💰 Getting prices for:', productName);
+  console.log('💰 Getting REAL prices for:', productName);
 
   const stores = [
     { name: 'Amazon', domain: 'amazon.com' },
@@ -277,146 +282,119 @@ async function getRealStorePrices(productName: string): Promise<StorePrice[]> {
   ];
 
   if (!process.env.BRAVE_API_KEY) {
-    // Fallback: realistic prices without search
-    return stores.map(store => ({
-      store: store.name,
-      price: getAccuratePrice(productName),
-      url: `https://www.${store.domain}/search?q=${encodeURIComponent(productName)}`,
-      inStock: true,
-    }));
+    console.log('❌ No Brave API key - cannot get prices');
+    return [];
   }
 
   try {
-    // STRATEGY: Do ONE general search and extract prices from ALL stores
-    const generalQuery = `${productName} price buy`;
-    const searchUrl = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(generalQuery)}&count=20`;
+    // BETTER SEARCH STRATEGY: Search each store individually
+    const pricePromises = stores.map(async (store) => {
+      try {
+        // More specific query per store
+        const storeQuery = `${productName} price site:${store.domain}`;
+        const searchUrl = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(storeQuery)}&count=10`;
 
-    console.log('🔍 Searching all stores:', generalQuery);
+        console.log(`🔍 Searching ${store.name}:`, storeQuery);
 
-    const response = await fetch(searchUrl, {
-      headers: {
-        'Accept': 'application/json',
-        'X-Subscription-Token': process.env.BRAVE_API_KEY || '',
-      },
-    });
+        const response = await fetch(searchUrl, {
+          headers: {
+            'Accept': 'application/json',
+            'Accept-Encoding': 'gzip, deflate',
+            'X-Subscription-Token': process.env.BRAVE_API_KEY || '',
+          },
+        });
 
-    if (!response.ok) {
-      console.log('⚠️ Search failed, using accurate fallback prices');
-      return stores.map(store => ({
-        store: store.name,
-        price: getAccuratePrice(productName),
-        url: `https://www.${store.domain}/search?q=${encodeURIComponent(productName)}`,
-        inStock: true,
-      }));
-    }
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.log(`❌ ${store.name} search failed:`, response.status, errorText);
+          return null;
+        }
 
-    const data = await response.json();
-    const results = data.web?.results || [];
-    console.log(`✅ Found ${results.length} results across all stores`);
+        const data = await response.json();
+        const results = data.web?.results || [];
 
-    // Extract prices from each store
-    const storePrices: StorePrice[] = [];
+        console.log(`📊 ${store.name}: Found ${results.length} results`);
 
-    for (const store of stores) {
-      let foundPrice: number | null = null;
-      let foundUrl: string | null = null;
+        if (results.length === 0) {
+          console.log(`⚠️ ${store.name}: No results found`);
+          return null;
+        }
 
-      // Look for results from this store's domain
-      for (const result of results) {
-        if (result.url && result.url.includes(store.domain)) {
-          // Extract price from title, description, or extra snippets
-          const text = `${result.title || ''} ${result.description || ''} ${result.extra_snippets?.join(' ') || ''}`;
+        // Extract price from the FIRST result that has one
+        let foundPrice: number | null = null;
+        let foundUrl: string | null = null;
 
-          // More aggressive price matching - catch $99, $99.99, $1,299.99
-          const priceMatches = text.match(/\$\s*(\d{1,3}(?:,?\d{3})*(?:\.\d{2})?)/g);
+        for (const result of results) {
+          // Combine all text fields
+          const text = [
+            result.title || '',
+            result.description || '',
+            result.extra_snippets?.join(' ') || ''
+          ].join(' ');
 
-          if (priceMatches && priceMatches.length > 0) {
-            // Get the most reasonable price (not too low, not too high)
-            for (const match of priceMatches) {
-              const price = parseFloat(match.replace(/[$,\s]/g, ''));
+          console.log(`🔎 ${store.name} result:`, text.substring(0, 200));
 
-              // Expanded sanity check based on product type
-              const minPrice = productName.toLowerCase().includes('toothpaste') ? 2 : 10;
-              const maxPrice = productName.toLowerCase().includes('car') ? 100000 : 5000;
+          // Multiple price patterns
+          const patterns = [
+            /\$\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/g,  // $99.99 or $1,299.99
+            /(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s*dollars?/gi,  // 99.99 dollars
+            /price[:\s]+\$?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/gi,  // Price: $99.99
+          ];
 
-              if (price >= minPrice && price <= maxPrice) {
+          for (const pattern of patterns) {
+            const matches = [...text.matchAll(pattern)];
+
+            for (const match of matches) {
+              const priceStr = match[1].replace(/,/g, '');
+              const price = parseFloat(priceStr);
+
+              // Sanity check - reasonable price range
+              if (price >= 1 && price <= 5000) {
                 foundPrice = price;
                 foundUrl = result.url;
-                console.log(`✅ ${store.name}: $${price} (from search result)`);
+                console.log(`✅ ${store.name}: Found price $${price} at ${result.url}`);
                 break;
               }
             }
+            if (foundPrice) break;
           }
-
           if (foundPrice) break;
         }
-      }
 
-      // If no price found, use accurate fallback
-      if (!foundPrice) {
-        foundPrice = getAccuratePrice(productName);
-        foundUrl = `https://www.${store.domain}/search?q=${encodeURIComponent(productName)}`;
-        console.log(`⚠️ ${store.name}: Using accurate fallback $${foundPrice}`);
-      }
+        if (!foundPrice) {
+          console.log(`⚠️ ${store.name}: No valid price found in results`);
+          return null;
+        }
 
-      storePrices.push({
-        store: store.name,
-        price: foundPrice,
-        url: foundUrl || `https://www.${store.domain}`,
-        inStock: true,
-      });
+        return {
+          store: store.name,
+          price: foundPrice,
+          url: foundUrl || results[0]?.url || `https://www.${store.domain}`,
+          inStock: true,
+        };
+
+      } catch (error) {
+        console.error(`❌ ${store.name} error:`, error);
+        return null;
+      }
+    });
+
+    const results = await Promise.all(pricePromises);
+    const validPrices = results.filter((r): r is StorePrice => r !== null);
+
+    console.log(`✅ Found ${validPrices.length} real prices out of ${stores.length} stores`);
+
+    if (validPrices.length === 0) {
+      console.log('❌ NO REAL PRICES FOUND - returning empty array');
+      return [];
     }
 
-    return storePrices.sort((a, b) => a.price - b.price);
+    return validPrices.sort((a, b) => a.price - b.price);
 
   } catch (error) {
     console.error('❌ Price search error:', error);
-    return stores.map(store => ({
-      store: store.name,
-      price: getAccuratePrice(productName),
-      url: `https://www.${store.domain}/search?q=${encodeURIComponent(productName)}`,
-      inStock: true,
-    }));
+    return [];
   }
-}
-
-// ACCURATE prices based on real market data
-function getAccuratePrice(productName: string): number {
-  const lower = productName.toLowerCase();
-
-  // Specific products first (most accurate)
-  if (lower.includes('airpods max')) return parseFloat((Math.random() * 30 + 535).toFixed(2)); // $535-565
-  if (lower.includes('xm5') || lower.includes('1000xm5')) return parseFloat((Math.random() * 20 + 390).toFixed(2)); // $390-410
-  if (lower.includes('xm4') || lower.includes('1000xm4')) return parseFloat((Math.random() * 20 + 185).toFixed(2)); // $185-205
-  if (lower.includes('airpods pro')) return parseFloat((Math.random() * 20 + 239).toFixed(2)); // $239-259
-  if (lower.includes('airpod')) return parseFloat((Math.random() * 20 + 119).toFixed(2)); // $119-139
-
-  // iPhones
-  if (lower.includes('iphone 15 pro max')) return parseFloat((Math.random() * 100 + 1099).toFixed(2)); // $1099-1199
-  if (lower.includes('iphone 15 pro')) return parseFloat((Math.random() * 100 + 999).toFixed(2)); // $999-1099
-  if (lower.includes('iphone 15')) return parseFloat((Math.random() * 50 + 799).toFixed(2)); // $799-849
-  if (lower.includes('iphone 14')) return parseFloat((Math.random() * 50 + 699).toFixed(2)); // $699-749
-
-  // Samsung
-  if (lower.includes('galaxy s24 ultra')) return parseFloat((Math.random() * 100 + 1199).toFixed(2)); // $1199-1299
-  if (lower.includes('galaxy s24')) return parseFloat((Math.random() * 50 + 799).toFixed(2)); // $799-849
-  if (lower.includes('galaxy s23')) return parseFloat((Math.random() * 50 + 699).toFixed(2)); // $699-749
-
-  // Laptops
-  if (lower.includes('macbook pro') && lower.includes('16')) return parseFloat((Math.random() * 200 + 2499).toFixed(2)); // $2499-2699
-  if (lower.includes('macbook pro')) return parseFloat((Math.random() * 200 + 1999).toFixed(2)); // $1999-2199
-  if (lower.includes('macbook air')) return parseFloat((Math.random() * 100 + 1099).toFixed(2)); // $1099-1199
-  if (lower.includes('laptop')) return parseFloat((Math.random() * 200 + 699).toFixed(2)); // $699-899
-
-  // General categories
-  if (lower.includes('headphone')) return parseFloat((Math.random() * 50 + 149).toFixed(2)); // $149-199
-  if (lower.includes('earbud')) return parseFloat((Math.random() * 30 + 79).toFixed(2)); // $79-109
-  if (lower.includes('toothpaste')) return parseFloat((Math.random() * 2 + 4.99).toFixed(2)); // $4.99-6.99
-  if (lower.includes('toothbrush') && lower.includes('electric')) return parseFloat((Math.random() * 30 + 49).toFixed(2)); // $49-79
-  if (lower.includes('smartwatch')) return parseFloat((Math.random() * 100 + 249).toFixed(2)); // $249-349
-
-  // Default fallback
-  return parseFloat((Math.random() * 30 + 49).toFixed(2)); // $49-79
 }
 
 function detectCategory(query: string): string {
