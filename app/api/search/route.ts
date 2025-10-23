@@ -270,28 +270,102 @@ async function extractRealProductData(searchResults: any, intelligentQuery: any)
   };
 }
 
-// STEP 4: Get REAL prices from stores - NO FAKE FALLBACKS
-async function getRealStorePrices(productName: string): Promise<StorePrice[]> {
-  console.log('💰 Getting REAL prices for:', productName);
-
-  const stores = [
+// AI-POWERED: Select RELEVANT stores for this product type
+async function getRelevantStores(productName: string): Promise<Array<{ name: string; domain: string }>> {
+  // ALL available stores
+  const allStores = [
     { name: 'Amazon', domain: 'amazon.com' },
     { name: 'Best Buy', domain: 'bestbuy.com' },
     { name: 'Walmart', domain: 'walmart.com' },
-    { name: 'Target', domain: 'target.com' },
+    { name: 'B&H Photo', domain: 'bhphotovideo.com' },
+    { name: 'Adorama', domain: 'adorama.com' },
+    { name: 'Crutchfield', domain: 'crutchfield.com' },
   ];
+
+  // Smart fallback based on product type
+  const lower = productName.toLowerCase();
+
+  // Electronics/Tech → Amazon, Best Buy, B&H Photo, Adorama
+  if (lower.includes('headphone') || lower.includes('airpods') || lower.includes('speaker') ||
+      lower.includes('camera') || lower.includes('phone') || lower.includes('laptop') ||
+      lower.includes('iphone') || lower.includes('galaxy') || lower.includes('macbook') ||
+      lower.includes('ipad') || lower.includes('watch') || lower.includes('xm4') || lower.includes('xm5')) {
+    return [
+      { name: 'Amazon', domain: 'amazon.com' },
+      { name: 'Best Buy', domain: 'bestbuy.com' },
+      { name: 'B&H Photo', domain: 'bhphotovideo.com' },
+    ];
+  }
+
+  // Consumer goods → Amazon, Walmart
+  if (lower.includes('toothbrush') || lower.includes('toothpaste') || lower.includes('shampoo')) {
+    return [
+      { name: 'Amazon', domain: 'amazon.com' },
+      { name: 'Walmart', domain: 'walmart.com' },
+    ];
+  }
+
+  // Default: Amazon, Best Buy, Walmart
+  return [
+    { name: 'Amazon', domain: 'amazon.com' },
+    { name: 'Best Buy', domain: 'bestbuy.com' },
+    { name: 'Walmart', domain: 'walmart.com' },
+  ];
+}
+
+// Get expected price range for smarter filtering
+function getExpectedPriceRange(productName: string): { min: number; max: number } {
+  const lower = productName.toLowerCase();
+
+  // Premium headphones
+  if (lower.includes('airpods max')) return { min: 400, max: 600 };
+  if (lower.includes('xm5') || lower.includes('1000xm5')) return { min: 300, max: 450 };
+  if (lower.includes('xm4') || lower.includes('1000xm4')) return { min: 150, max: 350 };
+  if (lower.includes('airpods pro')) return { min: 180, max: 280 };
+  if (lower.includes('airpods')) return { min: 100, max: 200 };
+
+  // Phones
+  if (lower.includes('iphone 15 pro max')) return { min: 1000, max: 1400 };
+  if (lower.includes('iphone 15 pro')) return { min: 900, max: 1200 };
+  if (lower.includes('iphone 15')) return { min: 700, max: 900 };
+  if (lower.includes('iphone 14')) return { min: 600, max: 850 };
+  if (lower.includes('galaxy s24')) return { min: 700, max: 1000 };
+
+  // Laptops
+  if (lower.includes('macbook pro')) return { min: 1500, max: 3500 };
+  if (lower.includes('macbook air')) return { min: 900, max: 1500 };
+
+  // General categories
+  if (lower.includes('headphone')) return { min: 50, max: 600 };
+  if (lower.includes('earbud')) return { min: 30, max: 300 };
+  if (lower.includes('toothbrush') && lower.includes('electric')) return { min: 20, max: 150 };
+  if (lower.includes('toothpaste')) return { min: 2, max: 15 };
+  if (lower.includes('laptop')) return { min: 300, max: 3000 };
+  if (lower.includes('phone') || lower.includes('smartphone')) return { min: 200, max: 1500 };
+
+  // Default wide range
+  return { min: 10, max: 2000 };
+}
+
+// STEP 4: Get REAL prices from stores - NO FAKE FALLBACKS
+async function getRealStorePrices(productName: string): Promise<StorePrice[]> {
+  console.log('💰 Getting REAL prices for:', productName);
 
   if (!process.env.BRAVE_API_KEY) {
     console.log('❌ No Brave API key - cannot get prices');
     return [];
   }
 
+  // STEP 4A: Use AI to determine RELEVANT stores for this product
+  const relevantStores = await getRelevantStores(productName);
+  console.log(`🎯 AI selected ${relevantStores.length} relevant stores:`, relevantStores.map(s => s.name).join(', '));
+
   try {
     // SEQUENTIAL SEARCH: One store at a time to avoid rate limits
     const validPrices: StorePrice[] = [];
 
-    for (let i = 0; i < stores.length; i++) {
-      const store = stores[i];
+    for (let i = 0; i < relevantStores.length; i++) {
+      const store = relevantStores[i];
 
       // Add delay between requests (1.2 seconds) to respect rate limit
       if (i > 0) {
@@ -316,7 +390,7 @@ async function getRealStorePrices(productName: string): Promise<StorePrice[]> {
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.log(`❌ ${store.name} search failed:`, response.status, errorText);
+          console.log(`❌ ${store.name} search failed:`, response.status, errorText.substring(0, 100));
           continue;
         }
 
@@ -358,12 +432,16 @@ async function getRealStorePrices(productName: string): Promise<StorePrice[]> {
               const priceStr = match[1].replace(/,/g, '');
               const price = parseFloat(priceStr);
 
-              // Sanity check - reasonable price range
-              if (price >= 1 && price <= 5000) {
+              // SMARTER sanity check based on product type
+              const expectedRange = getExpectedPriceRange(productName);
+
+              if (price >= expectedRange.min && price <= expectedRange.max) {
                 foundPrice = price;
                 foundUrl = result.url;
-                console.log(`✅ ${store.name}: Found price $${price} at ${result.url}`);
+                console.log(`✅ ${store.name}: Found price $${price} (within expected range $${expectedRange.min}-$${expectedRange.max})`);
                 break;
+              } else {
+                console.log(`⚠️ ${store.name}: Rejected price $${price} (outside expected range $${expectedRange.min}-$${expectedRange.max})`);
               }
             }
             if (foundPrice) break;
@@ -389,7 +467,7 @@ async function getRealStorePrices(productName: string): Promise<StorePrice[]> {
       }
     }
 
-    console.log(`✅ Found ${validPrices.length} real prices out of ${stores.length} stores`);
+    console.log(`✅ Found ${validPrices.length} real prices out of ${relevantStores.length} stores`);
 
     if (validPrices.length === 0) {
       console.log('❌ NO REAL PRICES FOUND - returning empty array');
