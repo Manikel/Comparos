@@ -99,7 +99,7 @@ export default function SearchPanel({ side, onProductConfirmed, product }: Searc
             <h2 className="text-2xl font-semibold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
               {side === 'left' ? 'First Product' : 'Second Product'}
             </h2>
-            <p className="text-gray-400 text-sm">Type a name or paste a link. Example: "Sony WH-1000XM4"</p>
+            <p className="text-gray-400 text-sm">Type a name or paste a link. Example: &ldquo;Sony WH-1000XM4&rdquo;</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-3">

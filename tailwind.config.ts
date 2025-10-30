@@ -11,13 +11,9 @@ const config: Config = {
       colors: {
         background: "#0a0a0f",
         surface: "#1a1a24",
-        primary: "#3b82f6",      // Blue-500
-        secondary: "#0ea5e9",    // Sky-500
-        accent: "#06b6d4",       // Cyan-500
-        blue: {
-          950: "#0a1628",
-          900: "#0c1e35",
-        },
+        primary: "#ffffff",      // White
+        secondary: "#e5e5e5",    // Light gray
+        accent: "#d4d4d4",       // Gray
       },
       animation: {
         // Fade animations
@@ -127,19 +123,19 @@ const config: Config = {
         },
         glow: {
           "0%, 100%": {
-            boxShadow: "0 0 20px rgba(59, 130, 246, 0.5)",
+            boxShadow: "0 0 20px rgba(255, 255, 255, 0.3)",
           },
           "50%": {
-            boxShadow: "0 0 40px rgba(59, 130, 246, 0.8), 0 0 60px rgba(59, 130, 246, 0.4)",
+            boxShadow: "0 0 40px rgba(255, 255, 255, 0.5), 0 0 60px rgba(255, 255, 255, 0.2)",
           },
         },
         glowPulse: {
           "0%, 100%": {
-            boxShadow: "0 0 10px rgba(59, 130, 246, 0.3)",
+            boxShadow: "0 0 10px rgba(255, 255, 255, 0.2)",
             filter: "brightness(1)",
           },
           "50%": {
-            boxShadow: "0 0 30px rgba(59, 130, 246, 0.6), 0 0 50px rgba(59, 130, 246, 0.3)",
+            boxShadow: "0 0 30px rgba(255, 255, 255, 0.4), 0 0 50px rgba(255, 255, 255, 0.2)",
             filter: "brightness(1.2)",
           },
         },
