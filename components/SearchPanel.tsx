@@ -1,8 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { FormEvent, useState } from 'react';
-import { Product } from '@/types';
+import React, { FormEvent, useState } from 'react';
+import type { Product } from '@/types';
 import ProductConfirmation from './ProductConfirmation';
 
 interface SearchPanelProps {
@@ -16,56 +15,46 @@ export default function SearchPanel({ side, onProductConfirmed, product }: Searc
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<Product | null>(null);
   const [searchAttempt, setSearchAttempt] = useState(0);
+  const [errorMsg, setErrorMsg] = useState<string>('');
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!searchQuery.trim()) return;
   const performSearch = async (query: string) => {
-    const trimmedQuery = query.trim();
-    if (!trimmedQuery) return;
-
-    setSearchResults(null);
+    const trimmed = query.trim();
+    if (!trimmed) return;
     setIsSearching(true);
+    setErrorMsg('');
+    setSearchResults(null);
 
     try {
-      // Check if it's a URL
-      const isUrl = searchQuery.startsWith('http://') || searchQuery.startsWith('https://');
-      const isUrl = trimmedQuery.startsWith('http://') || trimmedQuery.startsWith('https://');
-
-      const response = await fetch('/api/search', {
+      const isUrl = /^https?:\/\//i.test(trimmed);
+      const res = await fetch('/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query: searchQuery,
-          isUrl
-          query: trimmedQuery,
-          isUrl,
-        }),
+        body: JSON.stringify({ query: trimmed, isUrl }),
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Search request failed:', response.status, errorText);
+      if (!res.ok) {
+        const t = await res.text();
+        console.error('Search failed:', res.status, t);
+        setErrorMsg('Could not find that product. Try a more specific name or paste a direct link.');
         return;
       }
 
-      const data = await response.json();
-
-      if (data.product) {
+      const data = await res.json();
+      if (data?.product) {
         setSearchResults(data.product);
         setSearchAttempt(prev => prev + 1);
-        setSearchAttempt((prev) => prev + 1);
-      } else if (data.error) {
-        console.error('Search API error:', data.error);
+      } else {
+        setErrorMsg('No product found. Try refining your query.');
       }
-    } catch (error) {
-      console.error('Search error:', error);
+    } catch (err) {
+      console.error('Search error:', err);
+      setErrorMsg('Something went wrong. Please try again.');
     } finally {
       setIsSearching(false);
     }
   };
 
-  const handleSearch = async (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     await performSearch(searchQuery);
   };
@@ -79,21 +68,16 @@ export default function SearchPanel({ side, onProductConfirmed, product }: Searc
     }
   };
 
-  const handleDeny = () => {
+  const handleDeny = async () => {
     if (searchAttempt >= 2) {
-      // Ask for direct link
-      const link = prompt('Please enter the direct link to the product:');
+      const link = prompt('Please paste the direct product link:');
       if (link) {
         setSearchQuery(link);
-        handleSearch({ preventDefault: () => {} } as React.FormEvent);
-        void performSearch(link);
+        await performSearch(link);
       }
-    } else {
-      // Try searching again
-      setSearchResults(null);
-      handleSearch({ preventDefault: () => {} } as React.FormEvent);
-      void performSearch(searchQuery);
+      return;
     }
+    await performSearch(searchQuery);
   };
 
   if (product) {
@@ -110,11 +94,53 @@ export default function SearchPanel({ side, onProductConfirmed, product }: Searc
         <div className="space-y-6">
           <div className="text-center space-y-3 animate-fade-in-up">
             <div className="inline-block p-3 rounded-2xl glass-effect animate-scale-bounce">
-              <span className="text-4xl animate-float">
-                {side === 'left' ? '📱' : '🎧'}
-              </span>
+              <span className="text-4xl">{side === 'left' ? '📱' : '🎧'}</span>
             </div>
             <h2 className="text-2xl font-semibold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
               {side === 'left' ? 'First Product' : 'Second Product'}
             </h2>
-            <p className="text-gray-400 text-sm animate-fade-in" style={{ animationDelay: '0.2s' }}>
+            <p className="text-gray-400 text-sm">Type a name or paste a link. Example: "Sony WH-1000XM4"</p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-3">
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search product name or paste URL"
+              className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+            <button
+              disabled={isSearching || !searchQuery.trim()}
+              className="w-full rounded-xl bg-primary/90 hover:bg-primary text-white py-3 font-semibold transition disabled:opacity-50"
+            >
+              {isSearching ? 'Searching…' : 'Search'}
+            </button>
+          </form>
+
+          {errorMsg && <div className="text-sm text-red-400">{errorMsg}</div>}
+        </div>
+      ) : (
+        <div className="space-y-4 animate-fade-in-up">
+          <ProductConfirmation product={searchResults} confirmed={false} />
+
+          <div className="flex items-center justify-center gap-3">
+            <button
+              onClick={handleConfirm}
+              className="px-4 py-2 rounded-lg bg-green-600/90 hover:bg-green-600 text-white font-semibold"
+            >
+              ✓ This is correct
+            </button>
+            <button
+              onClick={handleDeny}
+              className="px-4 py-2 rounded-lg bg-rose-600/90 hover:bg-rose-600 text-white font-semibold"
+            >
+              ✗ Try again
+            </button>
+          </div>
+
+          {errorMsg && <div className="text-sm text-red-400 text-center">{errorMsg}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
