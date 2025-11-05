@@ -15,13 +15,27 @@ async function fetchHtml(url: string, timeoutMs = 10000): Promise<string | null>
         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
         "Cache-Control": "no-cache",
+        "Referer": "https://www.google.com/",
+        "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
       },
       signal: ctl.signal,
     });
     clearTimeout(t);
-    if (!res.ok) return null;
-    return await res.text();
-  } catch {
+
+    console.log(`📡 Fetch response from ${new URL(url).hostname}: ${res.status} ${res.statusText}`);
+
+    if (!res.ok) {
+      console.warn(`❌ Bad response: ${res.status} for ${url}`);
+      return null;
+    }
+
+    const html = await res.text();
+    console.log(`✅ Successfully fetched ${html.length} bytes`);
+    return html;
+  } catch (err) {
+    console.error(`❌ Fetch error for ${url}:`, err instanceof Error ? err.message : String(err));
     return null;
   }
 }
@@ -309,19 +323,26 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      console.log(`🌐 Fetching: ${host}`);
+      console.log(`🌐 Fetching: ${host} - ${productUrl}`);
       const html = await fetchHtml(productUrl, 12000);
+
       if (!html) {
-        console.warn(`⚠️ Failed to fetch: ${productUrl}`);
+        console.warn(`⚠️ Failed to fetch HTML from: ${productUrl}`);
         continue;
       }
 
+      console.log(`✅ Fetched ${html.length} bytes of HTML from ${host}`);
+
       const extractor = pickExtractor(host);
       const data = extractor(html);
+
       console.log(`📊 Extracted from ${host}:`, {
-        title: data.title?.substring(0, 50) + '...',
+        title: data.title?.substring(0, 50),
+        titleLength: data.title?.length || 0,
         hasImage: !!data.image,
-        price: data.price
+        imageUrl: data.image?.substring(0, 80),
+        price: data.price,
+        htmlSnippet: html.substring(0, 200).replace(/\s+/g, ' ')
       });
 
       // skip obviously non-PDP pages
