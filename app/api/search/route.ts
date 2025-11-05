@@ -283,7 +283,16 @@ export async function POST(req: NextRequest) {
     if (candidateUrls.length === 0) {
       console.warn('⚠️ No candidate URLs found');
       return NextResponse.json(
-        { error: "no_results", message: "No product pages found. Try a different search term or paste a direct link." },
+        {
+          error: "no_results",
+          message: "No product pages found. Try a different search term or paste a direct link.",
+          debug: {
+            query: query,
+            expandedQuery: expandedName,
+            expansion: expansion,
+            searchedDomains: domains
+          }
+        },
         { status: 404 }
       );
     }
@@ -342,7 +351,23 @@ export async function POST(req: NextRequest) {
     if (!primary) {
       console.error('❌ No valid product found after extraction');
       return NextResponse.json(
-        { error: "no_product_found", message: "Could not find that product. Try a more specific name or paste a direct link." },
+        {
+          error: "no_product_found",
+          message: "Could not extract product data from found pages. Try a more specific name or paste a direct link.",
+          debug: {
+            query: query,
+            expandedQuery: expandedName,
+            candidateUrlsFound: candidateUrls.length,
+            urlsTried: candidateUrls.slice(0, 5),
+            resultsExtracted: results.length,
+            extractedData: results.map(r => ({
+              store: r.store,
+              hasTitle: !!r.title,
+              hasPrice: !!r.price,
+              hasImage: !!r.image
+            }))
+          }
+        },
         { status: 404 }
       );
     }

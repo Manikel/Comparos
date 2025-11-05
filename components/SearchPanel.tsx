@@ -33,9 +33,22 @@ export default function SearchPanel({ side, onProductConfirmed, product }: Searc
       });
 
       if (!res.ok) {
-        const t = await res.text();
-        console.error('Search failed:', res.status, t);
-        setErrorMsg('Could not find that product. Try a more specific name or paste a direct link.');
+        try {
+          const errorData = await res.json();
+          console.error('Search failed:', res.status, errorData);
+
+          // Show detailed error with debug info
+          let errorMessage = errorData.message || 'Could not find that product.';
+          if (errorData.debug) {
+            console.log('🔍 Debug info:', errorData.debug);
+            errorMessage += '\n\nDebug Info:\n' + JSON.stringify(errorData.debug, null, 2);
+          }
+          setErrorMsg(errorMessage);
+        } catch {
+          const t = await res.text();
+          console.error('Search failed:', res.status, t);
+          setErrorMsg('Could not find that product. Try a more specific name or paste a direct link.');
+        }
         return;
       }
 
@@ -117,7 +130,11 @@ export default function SearchPanel({ side, onProductConfirmed, product }: Searc
             </button>
           </form>
 
-          {errorMsg && <div className="text-sm text-red-400">{errorMsg}</div>}
+          {errorMsg && (
+            <div className="text-sm text-red-400 bg-red-900/20 p-3 rounded-lg">
+              <pre className="whitespace-pre-wrap font-mono text-xs">{errorMsg}</pre>
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-4 animate-fade-in-up">
