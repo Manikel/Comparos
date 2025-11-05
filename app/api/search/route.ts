@@ -388,10 +388,17 @@ export async function POST(req: NextRequest) {
         htmlSnippet: html.substring(0, 200).replace(/\s+/g, ' ')
       });
 
-      // skip obviously non-PDP pages
-      if (isBadPage(html, data.title)) {
-        console.warn(`⚠️ Skipping bad page: ${productUrl}`);
+      // Skip obviously non-PDP pages, BUT allow pages with valid product data
+      // If we extracted a title and price, it's likely a valid product page
+      const hasValidData = data.title && data.title.length > 10 && data.price != null;
+
+      if (!hasValidData && isBadPage(html, data.title)) {
+        console.warn(`⚠️ Skipping bad page (no valid data + bad page indicators): ${productUrl}`);
         continue;
+      }
+
+      if (hasValidData) {
+        console.log(`✅ Valid product page detected (has title + price)`);
       }
 
       results.push({
