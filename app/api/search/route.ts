@@ -229,16 +229,40 @@ export async function POST(req: NextRequest) {
   try {
     const { query, isUrl }: { query: string; isUrl?: boolean } = await req.json();
 
+    console.log('🔍 Search request:', { query, isUrl });
+
     if (!query || typeof query !== "string") {
       return NextResponse.json({ error: "missing_query" }, { status: 400 });
     }
 
+    // Check API key
+    if (!process.env.OPENAI_API_KEY) {
+      console.error('❌ OPENAI_API_KEY not set');
+      return NextResponse.json(
+        { error: "api_key_missing", message: "OpenAI API key not configured" },
+        { status: 500 }
+      );
+    }
+
+    if (!process.env.BRAVE_API_KEY) {
+      console.error('❌ BRAVE_API_KEY not set');
+      return NextResponse.json(
+        { error: "api_key_missing", message: "Brave API key not configured" },
+        { status: 500 }
+      );
+    }
+
     // 1) AI expansion (xm4 -> Sony WH-1000XM4)
+    console.log('🤖 Expanding query with AI...');
     const expansion = await expandQueryWithAI(query);
+    console.log('✅ Expansion result:', expansion);
+
     const expandedName =
       expansion.fullName ||
       [expansion.brand, expansion.model].filter(Boolean).join(" ") ||
       query;
+
+    console.log('📝 Final search query:', expandedName);
 
     // 2) Build candidate URLs (search engine first), or accept direct URL
     const domains = [
@@ -252,7 +276,17 @@ export async function POST(req: NextRequest) {
       "electronics.sony.com",
     ];
 
+    console.log('🔎 Searching domains:', domains.slice(0, 3), '...');
     const candidateUrls = isUrl ? [query] : await searchProductUrls(expandedName, domains);
+    console.log(`📋 Found ${candidateUrls.length} candidate URLs:`, candidateUrls.slice(0, 3));
+
+    if (candidateUrls.length === 0) {
+      console.warn('⚠️ No candidate URLs found');
+      return NextResponse.json(
+        { error: "no_results", message: "No product pages found. Try a different search term or paste a direct link." },
+        { status: 404 }
+      );
+    }
 
     // 3) Visit candidates and extract data
     const results: Array<{ store: string; url: string; title?: string; image?: string; price?: number | null }> = [];
@@ -262,17 +296,30 @@ export async function POST(req: NextRequest) {
       try {
         host = new URL(productUrl).hostname;
       } catch {
+        console.warn('⚠️ Invalid URL:', productUrl);
         continue;
       }
 
+      console.log(`🌐 Fetching: ${host}`);
       const html = await fetchHtml(productUrl, 12000);
-      if (!html) continue;
+      if (!html) {
+        console.warn(`⚠️ Failed to fetch: ${productUrl}`);
+        continue;
+      }
 
       const extractor = pickExtractor(host);
       const data = extractor(html);
+      console.log(`📊 Extracted from ${host}:`, {
+        title: data.title?.substring(0, 50) + '...',
+        hasImage: !!data.image,
+        price: data.price
+      });
 
       // skip obviously non-PDP pages
-      if (isBadPage(html, data.title)) continue;
+      if (isBadPage(html, data.title)) {
+        console.warn(`⚠️ Skipping bad page: ${productUrl}`);
+        continue;
+      }
 
       results.push({
         store: host,
@@ -286,16 +333,21 @@ export async function POST(req: NextRequest) {
       await new Promise((r) => setTimeout(r, 500));
     }
 
+    console.log(`✅ Successfully extracted ${results.length} results`);
+
     // 4) Pick primary (cheapest if we have prices, else first)
     const priced = results.filter((r) => r.price != null) as Array<(typeof results)[number] & { price: number }>;
     const primary = priced.length ? priced.sort((a, b) => a.price - b.price)[0] : results[0];
 
     if (!primary) {
+      console.error('❌ No valid product found after extraction');
       return NextResponse.json(
         { error: "no_product_found", message: "Could not find that product. Try a more specific name or paste a direct link." },
         { status: 404 }
       );
     }
+
+    console.log('🎯 Primary product selected:', { store: primary.store, price: primary.price });
 
     // 5) Build UI product object - ONLY real data, no fallbacks
     const product = {
@@ -314,9 +366,10 @@ export async function POST(req: NextRequest) {
       source: "scrape",
     };
 
+    console.log('✅ Search successful!');
     return NextResponse.json({ product, debug: { expansion, tried: results.map((r) => r.url) } });
   } catch (e) {
     console.error("[/api/search] error", e);
-    return NextResponse.json({ error: "search_failed" }, { status: 500 });
+    return NextResponse.json({ error: "search_failed", message: String(e) }, { status: 500 });
   }
 }
