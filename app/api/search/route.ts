@@ -26,25 +26,53 @@ async function fetchHtml(url: string, timeoutMs = 10000): Promise<string | null>
   }
 }
 
-/* ---------------------------- Search (Bing HTML) --------------------------- */
+/* ---------------------------- Search (Brave API) --------------------------- */
 
 async function searchProductUrls(query: string, domains: string[]): Promise<string[]> {
   const links: string[] = [];
 
+  if (!process.env.BRAVE_API_KEY) {
+    console.error("❌ BRAVE_API_KEY not set - cannot search");
+    return [];
+  }
+
   for (const domain of domains) {
     const q = `site:${domain} ${query}`;
-    const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(q)}`;
-    const html = await fetchHtml(searchUrl, 10000);
-    if (!html) continue;
 
-    const $ = cheerio.load(html);
-    // Bing SERP anchors
-    $('li.b_algo h2 a[href], h2 a[href], a[href^="http"]').each((_, el) => {
-      const href = String($(el).attr("href") || "");
-      if (href.startsWith("http") && href.includes(domain)) {
-        links.push(href);
+    try {
+      const response = await fetch(
+        `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=10`,
+        {
+          headers: {
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip",
+            "X-Subscription-Token": process.env.BRAVE_API_KEY,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        console.error(`Brave API error for ${domain}:`, response.status);
+        continue;
       }
-    });
+
+      const data = await response.json();
+
+      // Extract URLs from results
+      if (data.web?.results) {
+        for (const result of data.web.results) {
+          if (result.url && result.url.includes(domain)) {
+            links.push(result.url);
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`Error searching ${domain}:`, error);
+      continue;
+    }
+
+    // Rate limit: small delay between requests
+    await new Promise((r) => setTimeout(r, 200));
   }
 
   // de-dup + keep order
@@ -269,13 +297,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 5) Build UI product object
+    // 5) Build UI product object - ONLY real data, no fallbacks
     const product = {
       id: "scraped-" + Date.now(),
       name: primary.title || expandedName,
       brand: expansion.brand,
       model: expansion.model,
-      image: primary.image || "https://via.placeholder.com/400x400?text=Product",
+      image: primary.image, // No fallback - undefined if not found
       price: primary.price != null ? `$${primary.price.toFixed(2)}` : undefined,
       cheapestPrice: primary.price ?? undefined,
       cheapestStore: primary.store,
