@@ -4,22 +4,32 @@ import * as cheerio from "cheerio";
 
 /* ------------------------------ HTTP helpers ------------------------------ */
 
-async function fetchHtml(url: string, timeoutMs = 10000): Promise<string | null> {
+async function fetchHtml(url: string, timeoutMs = 30000): Promise<string | null> {
   try {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), timeoutMs);
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Cache-Control": "no-cache",
-        "Referer": "https://www.google.com/",
-        "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124"',
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": '"Windows"',
-      },
+
+    // Use ScraperAPI if available (bypasses anti-bot measures)
+    let fetchUrl = url;
+    const headers: Record<string, string> = {};
+
+    if (process.env.SCRAPER_API_KEY) {
+      // ScraperAPI: proxy through their service
+      fetchUrl = `http://api.scraperapi.com?api_key=${process.env.SCRAPER_API_KEY}&url=${encodeURIComponent(url)}&render=false`;
+      console.log(`🔧 Using ScraperAPI for: ${new URL(url).hostname}`);
+    } else {
+      // Direct fetch (will likely be blocked by Amazon, etc.)
+      console.warn(`⚠️ No SCRAPER_API_KEY - using direct fetch (may be blocked)`);
+      headers["User-Agent"] =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+      headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
+      headers["Accept-Language"] = "en-US,en;q=0.9";
+      headers["Cache-Control"] = "no-cache";
+      headers["Referer"] = "https://www.google.com/";
+    }
+
+    const res = await fetch(fetchUrl, {
+      headers,
       signal: ctl.signal,
     });
     clearTimeout(t);
@@ -266,6 +276,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (!process.env.SCRAPER_API_KEY) {
+      console.warn('⚠️ SCRAPER_API_KEY not set - scraping may fail due to anti-bot measures');
+    }
+
     // 1) AI expansion (xm4 -> Sony WH-1000XM4)
     console.log('🤖 Expanding query with AI...');
     const expansion = await expandQueryWithAI(query);
@@ -324,7 +338,8 @@ export async function POST(req: NextRequest) {
       }
 
       console.log(`🌐 Fetching: ${host} - ${productUrl}`);
-      const html = await fetchHtml(productUrl, 12000);
+      // Longer timeout for ScraperAPI (they handle retries internally)
+      const html = await fetchHtml(productUrl, 30000);
 
       if (!html) {
         console.warn(`⚠️ Failed to fetch HTML from: ${productUrl}`);
@@ -359,8 +374,8 @@ export async function POST(req: NextRequest) {
         price: data.price ?? null,
       });
 
-      // be polite
-      await new Promise((r) => setTimeout(r, 500));
+      // Small delay between requests (ScraperAPI handles rate limiting)
+      await new Promise((r) => setTimeout(r, 200));
     }
 
     console.log(`✅ Successfully extracted ${results.length} results`);
