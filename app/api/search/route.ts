@@ -164,16 +164,33 @@ function extractGeneric(html: string): Extracted {
 
 function extractAmazon(html: string): Extracted {
   const $ = cheerio.load(html);
+
+  console.log('🔍 Amazon extraction starting...');
+
   const title =
     $("#productTitle").text().trim() ||
     og($, "title") ||
     $("title").first().text().trim();
+
+  console.log(`  - Title: "${title?.substring(0, 60)}..." (length: ${title?.length || 0})`);
+
   const img =
     $("#landingImage").attr("src") ||
     $('img#imgBlkFront').attr("src") ||
     og($, "image") ||
     $('img[alt][src]').first().attr("src");
+
+  console.log(`  - Image: ${img ? 'Found (' + img.substring(0, 60) + '...)' : 'Not found'}`);
+
   const price = firstPrice($);
+  console.log(`  - Price: ${price || 'Not found'}`);
+
+  // Check for bot detection
+  if (html.includes('captcha') || html.includes('robot') || html.toLowerCase().includes('sorry')) {
+    console.warn('⚠️ Possible CAPTCHA or bot detection page!');
+    console.log('  HTML snippet:', html.substring(0, 500));
+  }
+
   return { title, image: img, price };
 }
 
@@ -216,9 +233,20 @@ function pickExtractor(hostname: string) {
 /* ------------------------------- Sanitizers -------------------------------- */
 
 function isBadPage(html: string, title?: string): boolean {
-  const bad = /support|help|customer\-service|community|search|blog|news|store\/apps?|appstore|play\.google/i;
-  if (bad.test(html)) return true;
-  if (title && bad.test(title)) return true;
+  const bad = /support|help|customer\-service|community|search\sresults|blog|news|store\/apps?|appstore|play\.google/i;
+
+  if (title && bad.test(title)) {
+    console.log(`  ⚠️ Bad page detected in title: "${title}"`);
+    return true;
+  }
+
+  // Only check a small portion of HTML to avoid false positives
+  const htmlSnippet = html.substring(0, 2000);
+  if (bad.test(htmlSnippet)) {
+    console.log(`  ⚠️ Bad page detected in HTML (support/help/search page)`);
+    return true;
+  }
+
   return false;
 }
 
